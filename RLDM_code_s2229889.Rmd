@@ -1,0 +1,422 @@
+---
+title: "RLDM Code S2229889"
+author: "Sanne van Dijk"
+date: "2024-07-02"
+output:
+  pdf_document:
+     latex_engine: xelatex
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("/Users/sannevandijk/Desktop/RL&DM/RLDM")
+
+library('dplyr')
+library('ggplot2')
+library('psych')
+library('skimr')
+library('tinylabels')
+library('papaja')
+library('tidyr')
+library('tidyverse')
+source('helper_functions.r')
+
+dataset4 <- read.csv("dataset4.csv", sep = ",")
+rawdata <- as.data.frame(dataset4)
+
+# colors for the plots
+color1 <- "darkseagreen1"
+color2 <- "lightpink1"
+mycolors1 <- c(color1, color2)
+mycolors2 <- c(color2, color1)
+```
+
+## Inspecting the raw data
+### Overview of rawdata
+```{r}
+skimr::skim(rawdata)
+summary(rawdata)
+```
+### Sample size
+```{r}
+describe(rawdata)
+N <- length(unique(rawdata$ID))
+N # N = 12, and there is a total of 9600 observations
+```
+### Visual inspection
+```{r}
+# For ggplot, the condition and correct columns should be coded as factors
+rawdata_ggplot <- as.data.frame(dataset4) # In order to not get confused later
+
+# Change condition and correct into factors
+rawdata_ggplot$condition <- as.factor(rawdata_ggplot$condition)
+rawdata_ggplot$correct <- as.factor(rawdata_ggplot$correct)
+
+# Histogram showing the distribution of response times
+rt_hist <- ggplot(rawdata_ggplot, aes(x = rt)) +
+  geom_histogram(binwidth = 50, fill = color1, color=color2) +
+  labs(title = "Distribution of Response Times",
+       x = "Response Time",
+       y = "Frequency") +
+  theme_apa() +
+  xlim(0,2000)
+print(rt_hist)
+```
+
+## Remove extreme variables
+```{r}
+# Remove outliers using IQR
+  # Calculate Q1 (25th percentile) and Q3 (75th percentile)
+Q1 <- quantile(rawdata$rt, 0.25, na.rm = TRUE)
+Q3 <- quantile(rawdata$rt, 0.75, na.rm = TRUE)
+
+  # Calculate IQR
+IQR <- Q3 - Q1
+
+ # Determine bounds for outliers
+lower_bound <- Q1 - 1.5 * IQR
+upper_bound <- Q3 + 1.5 * IQR
+
+  # Make rawdata numeric
+num_rawdata <- as.data.frame(rawdata)
+num_rawdata$correct <- as.numeric(num_rawdata$correct, levels = c("1", "0"))
+
+    # Filter the data to remove outliers
+Datanooutl <- num_rawdata[num_rawdata$rt >= lower_bound & num_rawdata$rt <= upper_bound, ]
+
+  # Show histogram of the cleaned distribution
+DataNO_hist <- ggplot(Datanooutl, aes(x = rt)) +
+  geom_histogram(binwidth = 25, fill = color1, color=color2) +
+  labs(title = "Distribution of Response Times (Outliers Removed)",
+       x = "Response Time",
+       y = "Frequency") +
+  theme_apa() +
+  xlim(0,1200)
+print(DataNO_hist)
+```
+### Outlier inspection
+```{r}
+outliers <- anti_join(num_rawdata,Datanooutl)
+
+# Overview
+skimr::skim(outliers)
+summary(outliers)
+
+# Descriptives per participant
+outlierspp <- matrix(nrow = 4, ncol = 12, 
+                      dimnames = list(c("N", "M rt", "MD rt", "M accuracy"), 1:12))
+
+for (i in 1:12) {
+  outlierspp[1,i] <- sum(outliers$ID == i)
+  outlierspp[2,i] <- mean(outliers$rt[outliers$ID == i])
+  outlierspp[3,i] <- median(outliers$rt[outliers$ID == i])
+  outlierspp[4,i] <- mean(outliers$correct[outliers$ID == i])
+}
+outlierspp
+
+# Table of participant's descriptives after removing outliers
+  # Group data by participant (ID) and calculate descriptives
+descrip_perpart <- Datanooutl %>%
+  group_by(ID) %>%
+  summarise(
+    mean_rt = mean(rt, na.rm = TRUE),
+    sd_rt = sd(rt, na.rm = TRUE),
+    median_rt = median(rt, na.rm = TRUE),
+    min_rt = min(rt, na.rm = TRUE),
+    max_rt = max(rt, na.rm = TRUE),
+    mean_accuracy = mean(correct, na.rm = TRUE),
+    trials = n()  # Count the number of trials per participant
+  )
+  # Print the table of descriptives
+print(descrip_perpart)
+```
+
+## Data Inspection Cleaned Dataset
+```{r}
+summary(Datanooutl)
+describe(Datanooutl)
+skimr::skim(Datanooutl)
+```
+### Descriptives per participant
+```{r}
+dataWOdesc <- matrix(nrow = 4, ncol = 12, 
+                     dimnames = list(c("N", "M rt", "MD rt", "M accuracy"), 1:12))
+
+for (i in 1:12) {
+  dataWOdesc[1,i] <- sum(Datanooutl$ID == i)
+  dataWOdesc[2,i] <- mean(Datanooutl$rt[Datanooutl$ID == i])
+  dataWOdesc[3,i] <- median(Datanooutl$rt[Datanooutl$ID == i])
+  dataWOdesc[4,i] <- mean(Datanooutl$correct[Datanooutl$ID == i])
+}
+dataWOdesc
+
+```
+### Descriptives per conditions x corrections
+```{r}
+conditions <- list(
+  list(name = "correct_0", filter = quo(correct == 0)),
+  list(name = "correct_1", filter = quo(correct == 1)),
+  list(name = "condition_1", filter = quo(condition == 1)),
+  list(name = "condition_2", filter = quo(condition == 2)),
+  list(name = "condition_1_correct_0", filter = quo(condition == 1 
+                                                    & correct == 0)),
+  list(name = "condition_1_correct_1", filter = quo(condition == 1 
+                                                    & correct == 1)),
+  list(name = "condition_2_correct_0", filter = quo(condition == 2 
+                                                    & correct == 0)),
+  list(name = "condition_2_correct_1", filter = quo(condition == 2 
+                                                    & correct == 1))
+)
+
+summarycond <- list()
+for (cond in conditions) {
+  filtered_data <- Datanooutl %>% filter(!!cond$filter)
+  summarycond[[cond$name]] <- summary(filtered_data)
+}
+summarycond
+```
+
+## RT and accuracy differences between conditions
+```{r}
+## Histogram showing RTs for both correct and incorrect as overlaying distributions
+histCorrect <- ggplot(Datanooutl, aes(x = rt, group = factor(correct), 
+                                  fill = factor(correct))) +
+  geom_histogram(binwidth = 5, alpha = .6, position = "identity") +
+  papaja::theme_apa() +
+  labs(title = "Response Times by Correctness",
+       x = "Response Time",
+       y = "Frequency",
+       fill = "Accuracy") +
+  scale_fill_manual(values = mycolors2,
+                    labels = c("Correct", "Incorrect")) +  
+  xlim(c(0,1500)) +
+  annotate("text", x = 50, y = Inf, label = "a", size = 5, 
+           fontface = "bold", vjust = -1.5, hjust = 7) + 
+  coord_cartesian(clip = "off")  
+histCorrect
+
+## Histogram showing RTs for both condition 1 and condition 2 as overlaying distributions
+histCond <- ggplot(Datanooutl, aes(x = rt, group = factor(condition), 
+                               fill = factor(condition)) )+
+  geom_histogram(binwidth = 5, alpha = .6, position = "identity") + 
+  papaja::theme_apa() +
+  labs(title = "Response Times by Condition",
+       x = "Response Time",
+       y = "Frequency",
+       fill = "Condition") +
+  scale_fill_manual(values = mycolors1,
+                    labels = c("English Distractors", "Dutch Distractors")) +  
+  xlim(c(0,1500)) +
+  annotate("text", x = 50, y = Inf, label = "b", size = 5, 
+           fontface = "bold", vjust = -1.5, hjust = 7)+
+  coord_cartesian(clip = "off") 
+histCond
+```
+### Plots of accuracy by condition
+```{r}
+# barplot of accuracy by condition
+bar_acc <- ggplot(Datanooutl, aes(x = factor(condition), fill = factor(correct))) +
+  geom_bar(position = "fill") +
+  papaja::theme_apa() +
+  labs(title = "Accuracy by Condition",
+       x = "Condition",
+       y = "Proportion Correct",
+       fill = "Accuracy") +
+  scale_x_discrete(labels = c("1" = "English Distractor", "2" = "Dutch Distractor")) +
+  scale_fill_manual(values = mycolors1,
+                    labels = c("Incorrect", "Correct")) +
+  annotate("text", x = 1, y = Inf, label = "a", size = 5, 
+           fontface = "bold", vjust = -1.5, hjust = 15)+
+  coord_cartesian(xlim = c(1,2), clip = "off") 
+bar_acc
+
+# dotplot of RT vs accuracy
+dot_RT_Acc <- ggplot(Datanooutl, aes(x = rt, y = factor(correct), color = factor(condition))) +
+  geom_point(position = position_jitter(height = 0.1), size = 2, alpha = 0.6) +
+  scale_color_manual(name = "Condition", values = mycolors1, 
+                     labels = c("English Distractor", "Dutch Distractor")) +
+  papaja::theme_apa() +
+  labs(x = "Reaction Time", y = "Accuracy", 
+       title = "Reaction Time vs. Accuracy by Condition") +
+  scale_y_discrete(breaks = c(0, 1), labels = c("Incorrect", "Correct")) +
+  xlim(c(0, 1500)) +
+  annotate("text", x = 50, y = Inf, label = "b", size = 5, fontface = "bold",
+           vjust = -1.5, hjust = 6)+
+  coord_cartesian(clip = "off") 
+dot_RT_Acc
+```
+
+## Paired t-test over RT data by condition
+```{r}
+  # aggregate data by subject, using the median (due to skewed distribution of response times!)
+agg <- aggregate(Datanooutl, by = list(Datanooutl$ID, Datanooutl$condition), FUN = median)
+agg = subset(agg, select = c(ID, condition, correct, rt))
+
+  # Change agg into wide format and perform a t-test
+agg_wide <- agg %>% pivot_wider(names_from = condition, values_from = rt, names_prefix = 'cond_')
+res <- t.test(agg_wide$cond_1, agg_wide$cond_2, paired = TRUE)
+print(res)
+
+# Differences of mean accuracy between conditions
+  # Aggregate data by subject and condition to calculate the mean accuracy
+agg_acc <- Datanooutl %>%
+  group_by(ID, condition) %>%
+  summarize(mean_acc = mean(correct, na.rm = TRUE), .groups = 'drop')
+
+  # Change agg_acc into wide format for the t-test
+agg_acc_wide <- agg_acc %>%
+  pivot_wider(names_from = condition, values_from = mean_acc, names_prefix = 'cond_')
+
+  # Perform the paired t-test on mean accuracy
+res_acc <- t.test(agg_acc_wide$cond_1, agg_acc_wide$cond_2, paired = TRUE)
+print(res_acc)
+```
+
+## Modelfitting
+### Modelfit for each participant in each condition
+```{r}
+# Fit model for each participant x condition
+modelfit <- data.frame(ID = numeric(),
+                       condition = numeric(),
+                       s = numeric(),
+                       A = numeric(),
+                       ter = numeric(),
+                       b = numeric(),
+                       v1 = numeric())
+  # Extract parameters and code them into final data frame per subject and condition loop
+for (participant in 1:N) {
+  for (condition in 1:2) {
+    parameters <- fit_data(Datanooutl[Datanooutl$ID == participant & Datanooutl$condition == condition, ]) 
+    modelfit[nrow(modelfit) + 1, ] <- unlist(c(participant, condition, parameters))
+  }
+}
+```
+
+***Paramaters of our DDM from the fitting framework provided in the course:***
+'s' = *The standard deviation of drift rates*: The variability in drift rates. This parameter does however not an easily interpretable cognitive mapping and therefore does not show significant differences between conditions in the provided datasets.
+'A' = *The upper limit of the starting point*: The starting point of the evidence accumulation process, it reflects bias
+'ter' = *Non-decision time*: The portion of RT occuring independently of the decision-making process.
+'b' = *Threshold*: The distance from 0 to the threshold, reflects cautiousness (speed accuract trade-off). Lower thresholds cause faster responses, but reduce accuracy.
+'v1' = *Drift rate*: The difficulty level of the problem, higher drift rates cause faster decision-making (easy problem), while lower drift rates cause slower decision-making (hard problem)
+
+### Parameter comparison
+```{r}
+# Compare Parameters Between Conditions
+  ## BIAS
+  # Aggregate bias means and SDs
+A_means <- aggregate(A ~ condition, data = modelfit, FUN = mean)
+A_sds <- aggregate(A ~ condition, data = modelfit, FUN = sd)
+  # Bias t-test
+A_t_test <- t.test(modelfit$A ~ modelfit$condition, paired = TRUE)
+print(A_t_test)
+
+  ## BOUNDARY THRESHOLD
+  # Aggregate boundary threshold means and SDs
+b_means <- aggregate(b ~ condition, data = modelfit, FUN = mean)
+b_sds <- aggregate(b ~ condition, data = modelfit, FUN = sd)
+  # Boundary threshold t-test
+b_t_test <- t.test(modelfit$b ~ modelfit$condition, paired = TRUE)
+print(b_t_test)
+
+  ## DRIFT RATE
+  # Aggregate drift rate means and SDs
+v1_means <- aggregate(v1 ~ condition, data = modelfit, FUN = mean)
+v1_sds <- aggregate(v1 ~ condition, data = modelfit, FUN = sd)
+  # Drift rate t-test
+v1_t_test <- t.test(modelfit$v1 ~ modelfit$condition, paired = TRUE)
+print(v1_t_test)
+
+  ## DRIFT RATE SD
+  # Aggregate drift rate SD means and SDs
+s_means <- aggregate(s ~ condition, data = modelfit, FUN = mean)
+s_sds <- aggregate(s ~ condition, data = modelfit, FUN = sd)
+  # Drift rate SD t-test
+s_t_test <- t.test(modelfit$s ~ modelfit$condition, paired = TRUE)
+print(s_t_test)
+
+  ## NON-DECISION TIME
+  # Aggregate non-decision time means and SDs
+ter_means <- aggregate(ter ~ condition, data = modelfit, FUN = mean)
+ter_sds <- aggregate(ter ~ condition, data = modelfit, FUN = sd)
+  # Non-decision time t-test
+ter_t_test <- t.test(modelfit$ter ~ modelfit$condition, paired = TRUE)
+print(ter_t_test)
+```
+### Descriptives parameters per condition
+```{r}
+resultsc1 <- modelfit %>%
+  filter(condition == 1)
+skimr::skim(resultsc1)
+
+resultsc2 <- modelfit %>%
+  filter(condition == 2)
+skimr::skim(resultsc2)
+```
+
+## Parameter plots
+### Boxplots for all parameters
+```{r}
+modelfit_long <- modelfit %>%
+  pivot_longer(cols = c(s, A, ter, b, v1), 
+               names_to = "parameter", values_to = "value")
+
+ggplot(modelfit_long, 
+       aes(x = factor(condition), y = value, fill = factor(condition))) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(shape = 21, size = 1, position = position_jitter(0.2)) +
+  scale_x_discrete(labels = c("English", "Dutch")) +
+  facet_wrap(~ parameter, scales = "free_y",  
+             labeller = as_labeller(c("s" = "SD drift rate",
+                                      "A" = "Starting point",
+                                      "ter" = "Non-decision time",
+                                      "b" = "Threshold", 
+                                      "v1" = "Drift rate"))) +
+  scale_fill_manual(values = mycolors1) +  
+  papaja::theme_apa() +
+  theme(legend.position = "none") +
+  labs(x = "Condition", y = "Value", title = "Parameter Distribution by Condition")
+```
+### Boxplots and slopes for significant parameters
+```{r}
+# filter for significant parameters 
+significant_parameters <- modelfit_long %>%
+  filter(parameter %in% c("A"))
+
+# plot
+ggplot(significant_parameters, 
+       aes(x = factor(condition), y = value, fill = factor(condition))) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(shape = 21, size = 1, position = position_jitter(0.2)) +
+  geom_line(aes(group = ID), color = "slateblue1", alpha = 0.7) +  
+  scale_x_discrete(labels = c("English", "Dutch")) +
+  facet_wrap(~ parameter, scales = "free_y", 
+             labeller = as_labeller(c("s" = "SD drift rate", 
+                                      "A" = "Starting point",
+                                      "ter" = "Non-decision time",
+                                      "b" = "Threshold", 
+                                      "v1" = "Drift rate"))) +
+  scale_fill_manual(values = mycolors1) +  
+  papaja::theme_apa() +
+  theme(legend.position = "none") +
+  labs(x = "Condition", y = "Value", 
+       title = "Significant Parameter Distribution by Condition") 
+```
+### Correlations of parameters
+```{r}
+# color palette for degree of correlation
+color_palette <- colorRampPalette(c(color1, "slateblue1", color2))(200)
+
+# correlation matrix
+cor_matrix <- cor(modelfit[,3:7])
+
+# plot
+corrplot::corrplot(cor_matrix, method = "circle", type = "upper", 
+                  tl.col = "black", tl.srt = 45, 
+                  addCoef.col = "black", number.cex = 0.7, 
+                  col = color_palette,
+                  title = "Correlation Plot of Parameters",
+                  mar = c(0,0,1,0)) 
+```
